@@ -1,0 +1,82 @@
+
+# ------------------------------------------------------------
+# SECTION 1: MASTER NODE SETUP
+# ------------------------------------------------------------
+
+# Step 1: Install K3s Server (Master Node)
+# This command installs the K3s server on the master node.
+# It also sets the kubeconfig permissions so kubectl can be
+# accessed by non-root users.
+
+master_install_command: |
+  curl -sfL https://get.k3s.io | sh -s - --write-kubeconfig-mode 644
+
+
+# Step 2: Location of kubeconfig file
+# This file is automatically created after installation
+# and is required to manage the Kubernetes cluster.
+
+kubeconfig_path: /etc/rancher/k3s/k3s.yaml
+
+
+# Step 3: Retrieve Cluster Node Token
+# The token is required for worker nodes to join the cluster.
+# (Leave space to manually insert token in report if needed)
+
+cluster_token_command: |
+  sudo cat /var/lib/rancher/k3s/server/node-token
+
+cluster_token: "<ENTER_CLUSTER_TOKEN_HERE>"
+
+
+# Step 4: Get Master Node IP Address
+# Used to confirm the IP address of the master node.
+
+master_ip_command: |
+  hostname -I | awk '{print $1}'
+
+master_node_ip: 192.168.29.238
+
+
+# SECTION 2: WORKER NODE SETUP
+
+# Step 5: Install K3s Agent on Worker Node
+# This command connects the worker node to the master node
+# using the master IP and cluster token.
+
+worker_install_command: |
+  curl -sfL https://get.k3s.io | \
+  K3S_URL="https://192.168.29.238:6443" \
+  K3S_TOKEN="<ENTER_CLUSTER_TOKEN_HERE>" sh -
+
+worker_node_ip: 192.168.29.118
+
+
+# SECTION 3: CLUSTER VERIFICATION
+
+# Step 6: Verify Cluster Nodes
+# Run this command on the master node to verify that
+# both master and worker nodes are connected and ready.
+
+verify_nodes_command: |
+  kubectl get nodes
+
+
+# Expected Output:
+# NAME            STATUS   ROLES                  AGE   VERSION
+# master-node     Ready    control-plane,master   XXm   vX.X.X
+# worker-node     Ready    <none>                  XXm   vX.X.X
+
+
+
+# SECTION 4: SERVICE INFORMATION
+
+# K3s Services
+# K3s runs automatically as a system service.
+
+k3s_services:
+  master_service: k3s
+  worker_service: k3s-agent
+
+
+

@@ -1,0 +1,208 @@
+
+# SECTION 1: STORAGE PREPARATION (DOCUMENTATION)
+
+storage_setup:
+  glusterfs_volume:
+    name: gv0
+    description: >
+      A replicated GlusterFS volume mounted identically
+      on all nodes to provide shared persistent storage.
+    mount_points:
+      mariadb: /mnt/gv0/data/mariadb
+      nextcloud: /mnt/gv0/data/nextcloud
+
+  requirement:
+    note: >
+      GlusterFS volumes must be mounted before applying
+      Kubernetes manifests. hostPath relies on identical
+      paths across all nodes.
+
+
+# SECTION 2: PERSISTENT VOLUME (MARIADB)
+
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: mariadb-pv
+spec:
+  capacity:
+    storage: 3Gi
+  accessModes:
+    - ReadWriteMany
+  persistentVolumeReclaimPolicy: Retain
+  hostPath:
+    path: /mnt/gv0/data/mariadb
+    # Path backed by GlusterFS replication
+
+
+---
+
+# Persistent Volume Claim for MariaDB
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: mariadb-pvc
+spec:
+  accessModes:
+    - ReadWriteMany
+  resources:
+    requests:
+      storage: 3Gi
+
+
+
+# SECTION 3: MARIADB HIGH AVAILABILITY DEPLOYMENT
+
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: mariadb
+spec:
+  # Original HA design = 3 replicas
+  # Actual implementation = 1 replica
+  replicas: 1
+  selector:
+    matchLabels:
+      app: mariadb
+  template:
+    metadata:
+      labels:
+        app: mariadb
+    spec:
+      containers:
+        - name: mariadb
+          image: mariadb:10.6
+          env:
+            - name: MYSQL_ROOT_PASSWORD
+              value: "<ENTER_ROOT_PASSWORD>"
+            - name: MYSQL_DATABASE
+              value: nextcloud
+            - name: MYSQL_USER
+              value: nextclouduser
+            - name: MYSQL_PASSWORD
+              value: "<ENTER_DB_PASSWORD>"
+          ports:
+            - containerPort: 3306
+          volumeMounts:
+            - name: mariadb-storage
+              mountPath: /var/lib/mysql
+      volumes:
+        - name: mariadb-storage
+          persistentVolumeClaim:
+            claimName: mariadb-pvc
+
+
+---
+
+# MariaDB Service
+apiVersion: v1
+kind: Service
+metadata:
+  name: mariadb
+spec:
+  selector:
+    app: mariadb
+  ports:
+    - port: 3306
+      targetPort: 3306
+
+
+
+# SECTION 4: PERSISTENT VOLUME (NEXTCLOUD)
+
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: nextcloud-pv
+spec:
+  capacity:
+    storage: 5Gi
+  accessModes:
+    - ReadWriteMany
+  persistentVolumeReclaimPolicy: Retain
+  hostPath:
+    path: /mnt/gv0/data/nextcloud
+
+
+---
+
+# Persistent Volume Claim for Nextcloud
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: nextcloud-pvc
+spec:
+  accessModes:
+    - ReadWriteMany
+  resources:
+    requests:
+      storage: 5Gi
+
+
+# SECTION 5: NEXTCLOUD HIGH AVAILABILITY DEPLOYMENT
+
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: nextcloud
+spec:
+  # Original HA design = 3 replicas
+  # Actual implementation = 1 replica
+  replicas: 1
+  selector:
+    matchLabels:
+      app: nextcloud
+  template:
+    metadata:
+      labels:
+        app: nextcloud
+    spec:
+      containers:
+        - name: nextcloud
+          image: nextcloud:27
+          env:
+            - name: MYSQL_HOST
+              value: mariadb
+            - name: MYSQL_DATABASE
+              value: nextcloud
+            - name: MYSQL_USER
+              value: nextclouduser
+            - name: MYSQL_PASSWORD
+              value: "<ENTER_DB_PASSWORD>"
+          ports:
+            - containerPort: 80
+          volumeMounts:
+            - name: nextcloud-storage
+              mountPath: /var/www/html
+      volumes:
+        - name: nextcloud-storage
+          persistentVolumeClaim:
+            claimName: nextcloud-pvc
+
+
+# SECTION 6: NEXTCLOUD ACCESS (NODEPORT)
+
+apiVersion: v1
+kind: Service
+metadata:
+  name: nextcloud-service
+spec:
+  selector:
+    app: nextcloud
+  type: NodePort
+  ports:
+    - port: 80
+      targetPort: 80
+      nodePort: 30080
+      # Access via:
+      # http://<NodeIP>:30080
+
+
+# SECTION 7: DEPLOYMENT & ACCESS COMMANDS
+
+apply_commands: |
+  kubectl apply -f nextcloud-glusterfs-ha.yaml
+
+access_url: |
+  http://<NodeIP>:30080
+
